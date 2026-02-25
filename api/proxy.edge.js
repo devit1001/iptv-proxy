@@ -1,7 +1,6 @@
 // api/proxy.edge.js - Edge Function for streaming
 export const config = {
   runtime: 'edge',
-  regions: ['iad1'], // Optional: specify region
 };
 
 export default async function handler(req) {
@@ -27,7 +26,6 @@ export default async function handler(req) {
     const decodedUrl = decodeURIComponent(targetUrl);
     console.log('Proxying:', decodedUrl);
 
-    // Fetch the stream
     const response = await fetch(decodedUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0',
@@ -39,7 +37,6 @@ export default async function handler(req) {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    // Get content type
     const contentType = response.headers.get('content-type') || 'video/mp2t';
 
     // For M3U8 files, modify URLs
@@ -48,7 +45,6 @@ export default async function handler(req) {
       const baseUrl = decodedUrl.substring(0, decodedUrl.lastIndexOf('/') + 1);
       const host = req.headers.get('host');
       
-      // Rewrite TS URLs to use this same proxy
       const modified = text.replace(/([^\n]+\.ts)/g, (match) => {
         if (match.startsWith('http')) return match;
         const proxyUrl = `https://${host}/api/proxy.edge?url=${encodeURIComponent(baseUrl + match)}`;
@@ -64,7 +60,7 @@ export default async function handler(req) {
       });
     }
 
-    // For TS files, stream directly
+    // Stream directly
     return new Response(response.body, {
       headers: {
         'Access-Control-Allow-Origin': '*',
