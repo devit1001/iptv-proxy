@@ -1,9 +1,11 @@
-{
+    {
   "functions": {
-    "api/proxy.js": {
+    "api/proxy.edge.js": {
       "memory": 1024,
-      "maxDuration": 30
+      "runtime": "edge"
     }
+  }
+}
   },
   "headers": [
     {
