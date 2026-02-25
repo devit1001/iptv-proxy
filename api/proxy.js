@@ -16,10 +16,11 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log("Fetching:", url);
+    const decodedUrl = decodeURIComponent(url);
+    console.log("Fetching:", decodedUrl);
     
     // Fetch the stream with proper headers
-    const response = await fetch(decodeURIComponent(url), {
+    const response = await fetch(decodedUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "*/*",
@@ -27,31 +28,41 @@ export default async function handler(req, res) {
       }
     });
 
+    if (!response.ok) {
+      throw new Error(`HTTP error ${response.status}`);
+    }
+
     // Get the content type from the original response
     const contentType = response.headers.get("content-type");
     
     // Set correct content type
     if (contentType) {
       res.setHeader("Content-Type", contentType);
-    } else if (url.includes(".m3u8")) {
+    } else if (decodedUrl.includes(".m3u8")) {
       res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-    } else if (url.includes(".ts")) {
+    } else if (decodedUrl.includes(".ts")) {
       res.setHeader("Content-Type", "video/mp2t");
     } else {
       res.setHeader("Content-Type", "video/mp2t");
     }
 
     // For M3U8/HLS playlists, we need to modify URLs
-    if (url.includes(".m3u8")) {
+    if (decodedUrl.includes(".m3u8")) {
       let text = await response.text();
       
       // Get base URL for relative paths
-      const baseUrl = decodeURIComponent(url).substring(0, decodeURIComponent(url).lastIndexOf("/") + 1);
+      const baseUrl = decodedUrl.substring(0, decodedUrl.lastIndexOf("/") + 1);
       
-      // Replace relative URLs with proxy URLs
+      // FIX: Use absolute URLs with the current host
+      const host = req.headers.host;
+      const protocol = req.headers['x-forwarded-proto'] || 'https';
+      
+      // Replace relative URLs with absolute proxy URLs
       text = text.replace(/([^\n]+\.ts)/g, (match) => {
         if (match.startsWith("http")) return match;
-        return `/api/proxy?url=${encodeURIComponent(baseUrl + match)}`;
+        // Create absolute URL
+        const absoluteUrl = `${protocol}://${host}/api/proxy?url=${encodeURIComponent(baseUrl + match)}`;
+        return absoluteUrl;
       });
       
       return res.status(200).send(text);
