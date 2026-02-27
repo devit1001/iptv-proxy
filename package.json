@@ -1,7 +1,16 @@
 {
   "name": "iptv-proxy",
   "version": "1.0.0",
+  "description": "Proxy IPTV pour contourner CORS",
+  "main": "api/proxy.js",
+  "scripts": {
+    "dev": "vercel dev"
+  },
   "dependencies": {
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^3.3.0"
+  },
+  "type": "module",
+  "engines": {
+    "node": "18.x"
   }
 }
