@@ -1,10 +1,10 @@
-// api/proxy.js - Version finale avec gestion des erreurs
+// api/proxy.js - Version avec gestion complète des Range headers
 export default async function handler(req, res) {
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', '*');
-    res.setHeader('Access-Control-Expose-Headers', '*');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
     
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
@@ -20,22 +20,34 @@ export default async function handler(req, res) {
         const targetUrl = decodeURIComponent(url);
         console.log('Proxying:', targetUrl);
         
-        // Timeout plus long pour Vercel (max 30s pour plan gratuit)
+        // Récupérer le header Range du navigateur
+        const rangeHeader = req.headers.range;
+        console.log('Range header:', rangeHeader);
+        
+        // Préparer les headers pour la requête au serveur IPTV
+        const fetchHeaders = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*',
+            'Connection': 'keep-alive'
+        };
+        
+        // Si le navigateur demande un Range, le transmettre
+        if (rangeHeader) {
+            fetchHeaders['Range'] = rangeHeader;
+        }
+        
+        // Timeout plus long
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 28000); // 28 secondes
+        const timeoutId = setTimeout(() => controller.abort(), 28000);
         
         const response = await fetch(targetUrl, {
-            headers: {
-                'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
-                'Accept': '*/*',
-                'Connection': 'keep-alive'
-            },
+            headers: fetchHeaders,
             signal: controller.signal
         });
         
         clearTimeout(timeoutId);
         
-        if (!response.ok) {
+        if (!response.ok && response.status !== 206) {
             return res.status(response.status).json({ 
                 error: `HTTP ${response.status}`,
                 url: targetUrl.substring(0, 100)
@@ -43,22 +55,33 @@ export default async function handler(req, res) {
         }
         
         // Copier tous les headers importants
-        const headers = {};
-        response.headers.forEach((value, key) => {
-            headers[key] = value;
+        const headersToCopy = [
+            'content-type',
+            'content-length',
+            'content-range',
+            'accept-ranges'
+        ];
+        
+        headersToCopy.forEach(header => {
+            const value = response.headers.get(header);
+            if (value) {
+                res.setHeader(header, value);
+            }
         });
         
-        // Forcer le bon Content-Type pour les flux TS
-        const contentType = response.headers.get('content-type') || 'video/MP2T';
-        res.setHeader('Content-Type', contentType);
+        // Forcer le Content-Type si absent
+        if (!res.getHeader('content-type')) {
+            res.setHeader('Content-Type', 'video/MP2T');
+        }
         
-        // Ajouter des headers CORS supplémentaires
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        res.setHeader('Cross-Origin-Embedder-Policy', 'unsafe-none');
+        // Pour les réponses partielles (206)
+        if (response.status === 206) {
+            res.status(206);
+        }
         
         // Lire et renvoyer la réponse
         const buffer = await response.arrayBuffer();
-        res.status(200).send(Buffer.from(buffer));
+        res.send(Buffer.from(buffer));
         
     } catch (error) {
         console.error('Proxy error:', error);
