@@ -1,5 +1,6 @@
-// api/proxy.js - Version DEBUG
+// api/proxy.js - VERSION CORRIGÉE
 export default async function handler(req, res) {
+    // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     
     if (req.method === 'OPTIONS') {
@@ -13,54 +14,31 @@ export default async function handler(req, res) {
     }
     
     try {
-        const targetUrl = decodeURIComponent(url);
-        console.log('URL complète:', targetUrl);
+        // Décoder l'URL mais préserver les &
+        let targetUrl = decodeURIComponent(url);
         
-        // Extraire les composants pour vérification
-        const urlObj = new URL(targetUrl);
-        console.log('Host:', urlObj.hostname);
-        console.log('Username:', urlObj.username);
-        console.log('Password présent:', !!urlObj.password);
+        console.log('URL reçue:', targetUrl);
         
-        // Créer une nouvelle URL sans les identifiants pour voir
-        const urlWithoutAuth = `${urlObj.protocol}//${urlObj.hostname}${urlObj.pathname}${urlObj.search}`;
-        console.log('URL sans auth:', urlWithoutAuth);
-        
-        // Essayer avec fetch simple
+        // Requête directe
         const response = await fetch(targetUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18'
             }
         });
         
-        console.log('Status:', response.status);
-        console.log('Status text:', response.statusText);
-        
-        // Voir les headers de réponse
-        const headers = {};
-        response.headers.forEach((value, key) => {
-            headers[key] = value;
-        });
-        console.log('Response headers:', headers);
-        
         if (!response.ok) {
-            return res.status(response.status).json({
+            return res.status(response.status).json({ 
                 error: `Erreur ${response.status}`,
-                statusText: response.statusText,
-                url: targetUrl.substring(0, 100),
-                headers: headers
+                url: targetUrl
             });
         }
         
         const buffer = await response.arrayBuffer();
-        res.setHeader('Content-Type', response.headers.get('content-type') || 'video/MP2T');
+        const contentType = response.headers.get('content-type') || 'video/MP2T';
+        res.setHeader('Content-Type', contentType);
         res.status(200).send(Buffer.from(buffer));
         
     } catch (error) {
-        console.error('Proxy error:', error);
-        res.status(500).json({ 
-            error: error.message,
-            stack: error.stack 
-        });
+        res.status(500).json({ error: error.message });
     }
 }
