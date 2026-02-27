@@ -1,6 +1,5 @@
-// api/proxy.js - VERSION CORRIGÉE
+// api/proxy.js - Version avec streaming pour éviter timeout
 export default async function handler(req, res) {
-    // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     
     if (req.method === 'OPTIONS') {
@@ -8,37 +7,65 @@ export default async function handler(req, res) {
     }
     
     const { url } = req.query;
-    
-    if (!url) {
-        return res.status(400).json({ error: 'URL manquante' });
-    }
+    if (!url) return res.status(400).json({ error: 'URL manquante' });
     
     try {
-        // Décoder l'URL mais préserver les &
-        let targetUrl = decodeURIComponent(url);
+        const targetUrl = decodeURIComponent(url);
         
-        console.log('URL reçue:', targetUrl);
+        // Headers importants pour le streaming
+        const headers = {
+            'User-Agent': 'VLC/3.0.18',
+            'Accept': '*/*'
+        };
         
-        // Requête directe
-        const response = await fetch(targetUrl, {
-            headers: {
-                'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18'
-            }
-        });
-        
-        if (!response.ok) {
-            return res.status(response.status).json({ 
-                error: `Erreur ${response.status}`,
-                url: targetUrl
-            });
+        // Ajouter Range header si présent
+        if (req.headers.range) {
+            headers['Range'] = req.headers.range;
+            res.setHeader('Accept-Ranges', 'bytes');
         }
         
-        const buffer = await response.arrayBuffer();
+        const response = await fetch(targetUrl, { headers });
+        
+        if (!response.ok) {
+            return res.status(response.status).json({ error: `HTTP ${response.status}` });
+        }
+        
+        // Copier les headers de contenu
         const contentType = response.headers.get('content-type') || 'video/MP2T';
         res.setHeader('Content-Type', contentType);
-        res.status(200).send(Buffer.from(buffer));
+        
+        if (response.headers.get('content-length')) {
+            res.setHeader('Content-Length', response.headers.get('content-length'));
+        }
+        
+        if (response.headers.get('content-range')) {
+            res.setHeader('Content-Range', response.headers.get('content-range'));
+            res.status(206);
+        }
+        
+        // Stream la réponse
+        const reader = response.body.getReader();
+        
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                // Envoyer par chunks pour éviter timeout
+                res.write(value);
+                
+                // Permettre à l'event loop de respirer
+                await new Promise(resolve => setImmediate(resolve));
+            }
+            res.end();
+        } finally {
+            reader.releaseLock();
+        }
         
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Proxy error:', error);
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message });
+        }
     }
 }
