@@ -26,6 +26,10 @@
         {
           "key": "Access-Control-Allow-Headers",
           "value": "Content-Type, Range"
+        },
+        {
+          "key": "Access-Control-Expose-Headers",
+          "value": "Content-Length, Content-Range, Accept-Ranges"
         }
       ]
     }
