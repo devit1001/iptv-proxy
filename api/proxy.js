@@ -1,82 +1,84 @@
-// api/proxy.js - Proxy IPTV pour contourner CORS
+// api/proxy.js - Version avec authentification
 export default async function handler(req, res) {
-    // Activer CORS pour toutes les requêtes
+    // Activer CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+    res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
     
-    // Gérer les requêtes OPTIONS (preflight)
     if (req.method === 'OPTIONS') {
         res.status(200).end();
         return;
     }
     
-    // Récupérer l'URL du flux depuis les paramètres
     const { url } = req.query;
     
     if (!url) {
-        return res.status(400).json({ error: 'URL parameter is required' });
+        return res.status(400).json({ error: 'URL manquante' });
     }
     
     try {
-        console.log('Proxying request for:', url);
-        
-        // Décoder l'URL
         const targetUrl = decodeURIComponent(url);
+        console.log('Proxying:', targetUrl);
         
-        // Extraire les en-têtes Range si présents (pour la lecture partielle)
-        const rangeHeader = req.headers.range;
+        // Extraire les informations d'authentification de l'URL
+        const urlObj = new URL(targetUrl);
+        const username = urlObj.username;
+        const password = urlObj.password;
         
-        // Options de la requête
-        const fetchOptions = {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': '*/*',
-                'Accept-Language': 'fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3',
-                'Connection': 'keep-alive',
-                'Range': rangeHeader || ''
-            }
+        // Créer l'en-tête d'authentification si nécessaire
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'fr,fr-FR;q=0.8,en-US;q=0.5,en;q=0.3',
+            'Connection': 'keep-alive'
         };
         
-        // Faire la requête au serveur IPTV
-        const response = await fetch(targetUrl, fetchOptions);
-        
-        // Vérifier si la réponse est OK
-        if (!response.ok && response.status !== 206) {
-            throw new Error(`Server responded with status: ${response.status}`);
-        }
-        
-        // Copier les en-têtes importants
-        const headersToCopy = [
-            'content-type',
-            'content-length',
-            'content-range',
-            'accept-ranges',
-            'content-disposition'
-        ];
-        
-        headersToCopy.forEach(header => {
-            const value = response.headers.get(header);
-            if (value) {
-                res.setHeader(header, value);
+        // Ajouter l'authentification si présente dans l'URL
+        if (username && password) {
+            const auth = Buffer.from(`${username}:${password}`).toString('base64');
+            headers['Authorization'] = `Basic ${auth}`;
+            
+            // Nettoyer l'URL des identifiants pour la requête
+            urlObj.username = '';
+            urlObj.password = '';
+            const cleanUrl = urlObj.toString();
+            
+            console.log('Using authentication for:', cleanUrl);
+            
+            const response = await fetch(cleanUrl, { headers });
+            
+            if (!response.ok) {
+                throw new Error(`Server responded with status: ${response.status}`);
             }
-        });
-        
-        // Pour les flux TS, s'assurer que le type est correct
-        if (targetUrl.includes('.ts')) {
-            res.setHeader('Content-Type', 'video/MP2T');
+            
+            // Lire la réponse
+            const contentType = response.headers.get('content-type');
+            res.setHeader('Content-Type', contentType || 'video/MP2T');
+            
+            // Pour les flux vidéo, renvoyer le buffer
+            const buffer = await response.arrayBuffer();
+            res.status(200).send(Buffer.from(buffer));
+            
+        } else {
+            // Sans authentification, requête directe
+            const response = await fetch(targetUrl, { headers });
+            
+            if (!response.ok) {
+                throw new Error(`Server responded with status: ${response.status}`);
+            }
+            
+            const buffer = await response.arrayBuffer();
+            res.setHeader('Content-Type', response.headers.get('content-type') || 'video/MP2T');
+            res.status(200).send(Buffer.from(buffer));
         }
-        
-        // Stream la réponse directement au client
-        const buffer = await response.arrayBuffer();
-        res.status(response.status).send(Buffer.from(buffer));
         
     } catch (error) {
         console.error('Proxy error:', error);
         res.status(500).json({ 
             error: 'Proxy error', 
-            message: error.message 
+            message: error.message,
+            hint: 'Vérifiez l\'authentification du flux'
         });
     }
 }
